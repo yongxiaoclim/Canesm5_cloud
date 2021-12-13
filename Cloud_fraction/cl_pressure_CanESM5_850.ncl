@@ -1,0 +1,114 @@
+;********************************************************
+load "/tsanta/liang/code/ncl/ncl/lib/ncarg/nclscripts/csm/gsn_code.ncl"
+load "/tsanta/liang/code/ncl/ncl/lib/ncarg/nclscripts/csm/gsn_csm.ncl"
+load "/tsanta/liang/code/ncl/ncl/lib/ncarg/nclscripts/csm/contributed.ncl"
+load "/tsanta/liang/code/ncl/ncl/lib/ncarg/nclscripts/csm/shea_util.ncl"
+
+; This script is to calculated low cloud fraction at 950hpa.
+; as defined in Brient 2016 paper. 'The cloud fractions CF950 and CF850 are 
+; the mass-weighted cloud fractions between 1000 and 900 hPa and between 900 and 800 hPa.
+
+begin
+
+;prepare lat lon a for interpolation in the following calculation
+lat=fspan(-90, 90, 90)
+lon=fspan(0, 359, 180)
+
+
+do z = 0, dimsizes(tune)-1
+
+    ncdf     = addfile(tune(z)+"_cl_layer.nc" ,"c")  ; create a netCDF file
+    print(tune(z))  ;print the loop step
+    
+    ;open file seperately by 'tune' , 'tune' is an array consisted by all available tunning member
+    fls_z = systemfunc("ls "+path+"CanESM5-tune-esm001-"+tune(z)+"/pdControl/r"+inv(z)+"i1p2f1/Amon/cl/gn/v20190429/"+"cl_Amon_CanESM5-tune-esm001-"+tune(z)+"*")
+    fz=addfiles(fls_z,"r")
+    ListSetType(fz,"join")
+    
+    ; read lat lon 
+    lat_old=fz[0] ->lat
+    lon_old=fz[0] ->lon
+    
+    ; the time change change, the follwoing time selcted to be same as oberved quantity described in Brient 2016 paper
+    yrStrt = 2006
+    yrLast = 2012
+    year  = ispan(yrStrt, yrLast, 1)
+    TIME   = fz[0]->time
+    ymStrt = yrStrt*100 +  1
+    ymLast = yrLast*100 + 12
+    YYYY   = cd_calendar(TIME,-1)/100                 
+    iYYYY  = ind(YYYY.ge.yrStrt .and. YYYY.le.yrLast)
+
+    ; read cl and ps
+    cl = fz[:]->cl(:,iYYYY,:,:,:)
+    PS = fz[:]->ps(:,iYYYY,:,:) 
+    
+    ;delete TIME and YYYY after use up
+    delete(TIME)
+    delete(YYYY)
+    
+    ; define cloud fraction in monthly mean calculation
+    cl_mon=new((/12,dimsizes(cl(:,0,0,0,0)),dimsizes(cl(0,0,:,0,0)),dimsizes(lat_old),dimsizes(lon_old)/), float, cl@_FillValue)
+
+    ; define cl_new for new array of cloud fraction; define air_p for the following air pressure calculation  
+    cl_new=new((/12,dimsizes(cl(:,0,0,0,0)),dimsizes(cl(0,0,:,0,0)),dimsizes(lat),dimsizes(lon)/), typeof(cl), cl@_FillValue)
+    ; air_p=new((/12,dimsizes(cl(:,0,0,0,0)),dimsizes(cl(0,0,:,0,0)),dimsizes(lat),dimsizes(lon)/), float, cl@_FillValue)
+    
+    do m = 0, dimsizes(cl(:,0,0,0,0))-1 ; m represent a realization in multiple initial condition for a specific model member, this is mainly designed for CMIP6 models with multiple ensembles. 
+      
+      do l = 0, dimsizes(cl(0,0,:,0,0))-1 ; l represent a atmosperic layer. due to the three dimensional limit for clmMonTLL function  
+        cl_mon(:,m,l,:,:)=clmMonTLL(cl(time|:,ncl_join|m,lev|l,lat|:,lon|:))
+      end do
+    
+       cl_new(:,m,:,:,:)=linint2_Wrap (lon_old,lat_old,cl_mon(:,m,:,:,:), True, lon,lat, 0) ; remap cloud fraction 
+    
+    ; calculat air pressure
+       do n = 0, dimsizes(hybm)-1
+          air_p(:,m,n,:,:)=hyam(n)+hybm(n)*ps_new
+       end do
+
+    end do
+
+    ;define low cloud fraction below 950hPa and will will be asigned quantity in the following loop
+    lcc_850=new((/12,dimsizes(cl(:,0,0,0,0)),dimsizes(lat),dimsizes(lon)/), float, cl@_FillValue)
+
+
+    ;loop for all atmospheric layers and detect low cloud as cloud layer below 700hPa
+    ;and low cloud fraction is under a random-overlap assumption [Manabe and Strickler, 1964; 
+    ;Ramanathan et al., 1983; Stephens, 1984]. as defined in Brient 2016 paper. 'The cloud fractions CF950 and CF850 are 
+    ;the mass-weighted cloud fractions between 1000 and 900 hPa and between 900 and 800 hPa.
+
+    do m = 0, dimsizes(cl(:,0,0,0,0))-1
+        do t=0,12-1
+          do i = 0, dimsizes(lat)-1
+             do j=0,dimsizes(lon)-1
+                aa1=1
+                aa=tofloat(aa1)
+                do n = 0, dimsizes(hybm)-1
+                   if (.not.ismissing(air_p(t,m,n,i,j)).and.air_p(t,m,n,i,j).gt.80000.and.air_p(t,m,n,i,j).lt.90000) then
+                      aa=(1-cl_new(t,m,n,i,j)/100)*aa
+                   end if
+                end do
+               lcc_850(t,m,i,j)=1-aa
+            end do
+        end do
+      end do
+    end do
+
+
+    ; assgin Coordinate to low cloud fraction calculated above
+    lcc=lcc_850 ;low cloud fraction at 850hPa
+    lat@units= "degrees_north"                                                                        
+    lon@units= "degrees_east"  
+    lcc!0="month" 
+    lcc!1="runs" 
+    lcc!2="lat"
+    lcc!3="lon"
+    lcc&lat=lat
+    lcc&lon=lon
+    
+    ncdf->lcc =lcc  
+
+end do
+
+end
