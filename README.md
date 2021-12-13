@@ -8,7 +8,7 @@ Descriptions of attached files
 
 3.CSV files are arranged as one line per runid together with numerical values of the metric.
 
-4.The observed quantity (mean+/- std) for BCS is 44+/_3 % (Brient et al. 2016) and for MBLC is -1.28+/-0.19 %/K (Zhai et al. 2015). 
+4.The observed quantity (mean+/- std) for BCS is 44+/-3 % (Brient et al. 2016) and for MBLC is -1.28+/-0.19 %/K (Zhai et al. 2015). 
 
 5.MBLC metric is defined and described in Zhai et al. (2015) and BCS is described in Brient et al. (2016). 
 
